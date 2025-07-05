@@ -1,38 +1,64 @@
 'use client'
 
-import { useState } from 'react'
-import { Share2, Users, Clock, DollarSign } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { Share2, Users, Clock, DollarSign, ExternalLink } from 'lucide-react'
+import Link from 'next/link'
+import { formatUnits } from 'viem'
+
+interface Pool {
+  creator: string
+  poolAddress: string
+  id: string
+  poolId: string
+  targetAmount: number
+  targetToken: string
+  title: string
+}
 
 export function ActivePools() {
-  // Mock data - replace with real data
-  const [pools] = useState([
-    {
-      id: '1',
-      title: 'ETH Investment Group',
-      description: 'Pooling money to buy ETH before the next pump',
-      targetAmount: 500,
-      currentAmount: 320,
-      targetToken: 'ETH',
-      contributors: 8,
-      maxContributors: 10,
-      deadline: '2024-01-15',
-      creator: '0x1234...5678',
-      isOwner: true
-    },
-    {
-      id: '2',
-      title: 'LINK Accumulation',
-      description: 'DCA into LINK with the squad',
-      targetAmount: 200,
-      currentAmount: 85,
-      targetToken: 'LINK',
-      contributors: 3,
-      maxContributors: 5,
-      deadline: '2024-01-10',
-      creator: '0x9876...4321',
-      isOwner: false
+  const [pools, setPools] = useState<Pool[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    fetchPools()
+  }, [])
+
+  const fetchPools = async () => {
+    try {
+      // Replace with your actual API endpoint
+      const response = await fetch('/api/contracts/pools')
+      const data = await response.json()
+      
+      if (data.success) {
+        setPools(data.pools)
+      }
+    } catch (error) {
+      console.error('Failed to fetch pools:', error)
+      // For now, show mock data
+      setPools([
+        {
+          creator: '0x1234...5678',
+          poolAddress: '0x123...',
+          id: '0',
+          poolId: '0',
+          targetAmount: 500,
+          targetToken: 'ETH',
+          title: 'ETH Investment Group'
+        },
+        {
+          creator: '0x9876...4321',
+          poolAddress: '0x456...',
+          id: '1',
+          poolId: '1',
+          targetAmount: 200,
+          targetToken: 'LINK',
+          title: 'LINK Accumulation'
+        }
+      ])
+    } finally {
+      setLoading(false)
     }
-  ])
+  }
 
   const sharePool = (poolId: string) => {
     const url = `${window.location.origin}/pool/${poolId}`
@@ -40,15 +66,13 @@ export function ActivePools() {
     alert('Pool link copied to clipboard!')
   }
 
-  const getProgressPercentage = (current: number, target: number) => {
-    return Math.min((current / target) * 100, 100)
-  }
-
-  const getDaysRemaining = (deadline: string) => {
-    const now = new Date()
-    const end = new Date(deadline)
-    const diff = end.getTime() - now.getTime()
-    return Math.ceil(diff / (1000 * 60 * 60 * 24))
+  if (loading) {
+    return (
+      <div className="text-center py-8">
+        <div className="animate-spin rounded-full w-8 h-8 border border-blue-600 border-t-transparent mx-auto mb-4"></div>
+        <p className="text-gray-600">Loading pools...</p>
+      </div>
+    )
   }
 
   return (
@@ -60,24 +84,21 @@ export function ActivePools() {
 
       {pools.length === 0 ? (
         <div className="text-center py-8">
-          <Users className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+          <Users className="h-12 w-12 text-gray-500 mx-auto mb-4" />
           <p className="text-gray-600">No active pools yet. Create your first pool!</p>
         </div>
       ) : (
         <div className="space-y-4">
           {pools.map(pool => (
-            <div key={pool.id} className="bg-gray-50 rounded-xl p-6 border border-gray-200">
+            <div key={pool.id} className="bg-gray-50 rounded-xl p-6 border">
               <div className="flex justify-between items-start mb-4">
-                <div>
-                  <h3 className="text-lg font-semibold text-gray-900">{pool.title}</h3>
-                  <p className="text-sm text-gray-600">{pool.description}</p>
+                <div className="flex-1">
+                  <div className="flex items-center space-x-3 mb-2">
+                    <h3 className="text-lg font-semibold text-gray-900">{pool.title}</h3>
+                  </div>
+                  <p className="text-sm text-gray-600 mb-3">Created by: {pool.creator}</p>
                 </div>
                 <div className="flex items-center space-x-2">
-                  {pool.isOwner && (
-                    <span className="bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded-full">
-                      Owner
-                    </span>
-                  )}
                   <button
                     onClick={() => sharePool(pool.id)}
                     className="p-2 hover:bg-gray-200 rounded-lg transition-colors"
@@ -85,59 +106,36 @@ export function ActivePools() {
                   >
                     <Share2 className="h-4 w-4 text-gray-600" />
                   </button>
+                  <Link 
+                    href={`/pool/${pool.id}`}
+                    className="p-2 hover:bg-blue-100 rounded-lg transition-colors text-blue-600"
+                    title="View pool details"
+                  >
+                    <ExternalLink className="h-4 w-4" />
+                  </Link>
                 </div>
               </div>
 
-              <div className="mb-4">
-                <div className="flex justify-between items-center mb-2">
-                  <span className="text-sm font-medium text-gray-700">
-                    Progress: ${pool.currentAmount} / ${pool.targetAmount} USDC
-                  </span>
-                  <span className="text-sm text-gray-600">
-                    {getProgressPercentage(pool.currentAmount, pool.targetAmount).toFixed(1)}%
-                  </span>
-                </div>
-                <div className="w-full bg-gray-200 rounded-full h-2">
-                  <div
-                    className="bg-blue-600 h-2 rounded-full transition-all duration-300"
-                    style={{
-                      width: `${getProgressPercentage(pool.currentAmount, pool.targetAmount)}%`
-                    }}
-                  ></div>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-4 gap-4 text-sm">
+              <div className="grid grid-cols-2 gap-4 text-sm">
                 <div className="flex items-center space-x-2">
                   <DollarSign className="h-4 w-4 text-gray-500" />
-                  <span className="text-gray-600">Target: {pool.targetToken}</span>
+                  <span className="text-gray-600">Target: {formatUnits(BigInt(pool.targetAmount), 6)} USDC</span>
                 </div>
                 <div className="flex items-center space-x-2">
-                  <Users className="h-4 w-4 text-gray-500" />
-                  <span className="text-gray-600">
-                    {pool.contributors}/{pool.maxContributors} people
-                  </span>
+                  <span className="text-gray-600">Pool ID: {pool.poolId}</span>
                 </div>
                 <div className="flex items-center space-x-2">
-                  <Clock className="h-4 w-4 text-gray-500" />
-                  <span className="text-gray-600">
-                    {getDaysRemaining(pool.deadline)} days left
-                  </span>
+                  <span className="text-gray-600 text-xs">Pool Address: {pool.poolAddress}</span>
                 </div>
-                <div className="text-right">
-                  <span className="text-xs text-gray-500">
-                    by {pool.creator}
-                  </span>
+                <div style={{ textAlign: 'right' }}>
+                  <Link 
+                    href={`/pool/${pool.poolId}`}
+                    className="text-blue-600 hover:text-blue-700 text-sm font-medium"
+                  >
+                    View Details →
+                  </Link>
                 </div>
               </div>
-
-              {pool.currentAmount >= pool.targetAmount && (
-                <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded-lg">
-                  <p className="text-sm text-green-800 font-medium">
-                    🎉 Goal reached! Ready to purchase {pool.targetToken}
-                  </p>
-                </div>
-              )}
             </div>
           ))}
         </div>
@@ -145,3 +143,4 @@ export function ActivePools() {
     </div>
   )
 }
+

@@ -1,0 +1,15 @@
+# yaml-language-server: $schema=./node_modules/envio/evm.schema.json
+name: indexer
+networks:
+- id: 421614
+  start_block: 0
+  contracts:
+  - name: ChipInFactory
+    address:
+    - 0x1f74ab8847339D7f91D049da75ceEB0f21E87827
+    handler: src/EventHandlers.ts
+    events:
+    - event: OwnershipTransferred(address indexed previousOwner, address indexed newOwner)
+    - event: PoolCreated(uint256 indexed poolId, address indexed poolAddress, address indexed creator, string title, uint256 targetAmount, address targetToken)
+    - event: SwapExecuted(uint256 indexed poolId, address indexed targetToken, uint256 usdcAmount, uint256 tokensReceived)
+unordered_multichain_mode: true
