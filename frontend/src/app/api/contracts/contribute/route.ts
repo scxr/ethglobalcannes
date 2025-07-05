@@ -1,20 +1,15 @@
+// app/api/contracts/contribute/route.ts
 import { NextRequest, NextResponse } from 'next/server'
-import { createPublicClient, http, getContract, encodeFunctionData, encodePacked, parseAbi, parseErc6492Signature, formatUnits, hexToBigInt, parseUnits } from 'viem'
+import { createPublicClient, http, getContract, encodeFunctionData, encodePacked, parseAbi, parseErc6492Signature, formatUnits, hexToBigInt } from 'viem'
 import { createBundlerClient } from 'viem/account-abstraction'
 import { arbitrumSepolia } from 'viem/chains'
 import { toEcdsaKernelSmartAccount } from 'permissionless/accounts'
 import { privateKeyToAccount } from 'viem/accounts'
 
-// Arbitrum Sepolia USDC contract address - try alternative if the main one fails
+// SAME as working transfer & pool creation
 const ARBITRUM_SEPOLIA_USDC = '0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d'
-// Alternative USDC contracts to try if the main one fails:
-// const ARBITRUM_SEPOLIA_USDC = '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238' // Ethereum Sepolia USDC (sometimes works cross-chain)
-// const ARBITRUM_SEPOLIA_USDC = '0xbc47901f4d2c5fc871ae0037ea05c3f614690781' // Another USDC on Arbitrum Sepolia
-// Circle Paymaster contract address for Arbitrum Sepolia
 const ARBITRUM_SEPOLIA_PAYMASTER = '0x31BE08D380A21fc740883c0BC434FcFc88740b58'
-// Pimlico bundler for Arbitrum Sepolia
 const ARBITRUM_SEPOLIA_BUNDLER = `https://public.pimlico.io/v2/${arbitrumSepolia.id}/rpc`
-
 const MAX_GAS_USDC = BigInt(1000000) // 1 USDC for gas
 
 const tokenAbi = parseAbi([
@@ -31,7 +26,21 @@ const tokenAbi = parseAbi([
   'function approve(address spender, uint256 amount) returns (bool)'
 ])
 
-// EIP-2612 permit helper function
+const poolAbi = parseAbi([
+  'function contribute(uint256 amount)',
+  'function getPoolInfo() view returns (string title, string description, uint256 targetAmount, uint256 totalContributed, uint256 contributorCount, uint256 deadline, bool goalReached, bool executed, bool cancelled)',
+  'function contributors(address) view returns (uint256 amount, bool exists)',
+  'function targetAmount() view returns (uint256)',
+  'function totalContributed() view returns (uint256)',
+  'function deadline() view returns (uint256)',
+  'function goalReached() view returns (bool)',
+  'function executed() view returns (bool)',
+  'function cancelled() view returns (bool)',
+  'event ContributionMade(address indexed contributor, uint256 amount)',
+  'event GoalReached(uint256 totalAmount)'
+])
+
+// EXACT same permit function as working transfer
 async function eip2612Permit({
   token,
   chain,
@@ -81,10 +90,21 @@ async function eip2612Permit({
 
 export async function POST(request: NextRequest) {
   try {
-    let { from, to, data, chainId, amount } = await request.json()
+    const {
+      poolAddress,
+      amount,
+      userAddress,
+      chainId
+    } = await request.json()
+
     const privateKey = process.env.PRIVATE_KEY
 
-    console.log('Sponsoring transaction:', { from, to, amount, chainId })
+    console.log('Contributing to pool with paymaster:', {
+      poolAddress,
+      amount,
+      userAddress,
+      chainId
+    })
 
     if (!privateKey) {
       return NextResponse.json({
@@ -93,10 +113,17 @@ export async function POST(request: NextRequest) {
       })
     }
 
-    // Create clients with specific RPC URL for better reliability
+    if (!poolAddress || !amount) {
+      return NextResponse.json({
+        success: false,
+        error: 'Pool address and amount are required'
+      })
+    }
+
+    // EXACT same client setup as working transfer
     const client = createPublicClient({
       chain: arbitrumSepolia,
-      transport: http('https://sepolia-rollup.arbitrum.io/rpc') // Official Arbitrum Sepolia RPC
+      transport: http('https://sepolia-rollup.arbitrum.io/rpc')
     })
 
     const bundlerClient = createBundlerClient({
@@ -104,7 +131,7 @@ export async function POST(request: NextRequest) {
       transport: http(ARBITRUM_SEPOLIA_BUNDLER)
     })
 
-    // Create accounts
+    // EXACT same account setup as working transfer
     const owner = privateKeyToAccount(privateKey as `0x${string}`)
     const account = await toEcdsaKernelSmartAccount({
       client,
@@ -112,25 +139,23 @@ export async function POST(request: NextRequest) {
       version: '0.3.1'
     })
 
-    // Setup USDC contract
+    // EXACT same USDC setup as working transfer
     const usdc = getContract({
       client,
       address: ARBITRUM_SEPOLIA_USDC,
       abi: tokenAbi,
     })
 
-    // Verify USDC balance first
     console.log("Account address:", account.address)
-    console.log("Account pk:", privateKey)
 
-    // First test if we can read basic contract info
+    // EXACT same contract verification as working transfer
     try {
       const name = await usdc.read.name()
       const symbol = await usdc.read.symbol()
       const decimals = await usdc.read.decimals()
-      console.log("Contract info:", { name, symbol, decimals })
+      console.log("USDC Contract info:", { name, symbol, decimals })
     } catch (error) {
-      console.error("Error reading contract info:", error)
+      console.error("Error reading USDC contract info:", error)
       return NextResponse.json({
         success: false,
         error: 'Unable to read USDC contract. Contract might be incorrect.',
@@ -138,18 +163,88 @@ export async function POST(request: NextRequest) {
       })
     }
 
-    const balance = await usdc.read.balanceOf([account.address])
-    console.log("Balance: ", balance)
-    const amountInWei = parseUnits(amount.toString(), 6)
-    
-    if (balance < amountInWei) {
+    // Setup pool contract
+    const pool = getContract({
+      client,
+      address: poolAddress,
+      abi: poolAbi,
+    })
+
+    // Verify pool exists and get info
+    try {
+      const poolInfo = await pool.read.getPoolInfo()
+      console.log("Pool info:", {
+        title: poolInfo[0],
+        targetAmount: formatUnits(poolInfo[2], 6),
+        totalContributed: formatUnits(poolInfo[3], 6),
+        contributorCount: poolInfo[4].toString(),
+        goalReached: poolInfo[6],
+        executed: poolInfo[7],
+        cancelled: poolInfo[8]
+      })
+
+      // Check if pool is still active
+      if (poolInfo[7]) { // executed
+        return NextResponse.json({
+          success: false,
+          error: 'Pool has already been executed'
+        })
+      }
+
+      if (poolInfo[8]) { // cancelled
+        return NextResponse.json({
+          success: false,
+          error: 'Pool has been cancelled'
+        })
+      }
+
+      if (poolInfo[6]) { // goalReached
+        return NextResponse.json({
+          success: false,
+          error: 'Pool goal has already been reached'
+        })
+      }
+
+      // Check if deadline passed
+      const deadline = await pool.read.deadline()
+      const now = Math.floor(Date.now() / 1000)
+      if (Number(deadline) < now) {
+        return NextResponse.json({
+          success: false,
+          error: 'Pool deadline has passed'
+        })
+      }
+
+    } catch (error) {
+      console.error("Error reading pool contract:", error)
       return NextResponse.json({
         success: false,
-        error: `Insufficient USDC balance. Have: ${formatUnits(balance, 6)}, Need: ${formatUnits(amountInWei, 6)}`
+        error: 'Unable to read pool contract. Pool might not exist.',
+        details: error instanceof Error ? error.message : 'Unknown error'
       })
     }
 
-    // Construct and sign permit
+    // Convert contribution amount
+    const contributionAmount = BigInt(amount) // Amount should be in USDC wei (6 decimals)
+    const totalNeeded = contributionAmount + MAX_GAS_USDC // Need amount + gas
+
+    // EXACT same balance check as working transfer
+    const balance = await usdc.read.balanceOf([account.address])
+    console.log("USDC Balance:", formatUnits(balance, 6))
+    console.log("Need:", formatUnits(totalNeeded, 6), "USDC (", formatUnits(contributionAmount, 6), "contribution +", formatUnits(MAX_GAS_USDC, 6), "gas )")
+    
+    if (balance < totalNeeded) {
+      return NextResponse.json({
+        success: false,
+        error: `Insufficient USDC balance. Have: ${formatUnits(balance, 6)}, Need: ${formatUnits(totalNeeded, 6)} (${formatUnits(contributionAmount, 6)} contribution + ${formatUnits(MAX_GAS_USDC, 6)} gas)`
+      })
+    }
+
+    // Check current allowance to pool
+    const poolAllowance = await usdc.read.allowance([account.address, poolAddress])
+    console.log("Current pool allowance:", formatUnits(poolAllowance, 6), "USDC")
+
+    // EXACT same permit construction as working transfer (for gas)
     const permitData = await eip2612Permit({
       token: usdc,
       chain: arbitrumSepolia,
@@ -162,15 +257,31 @@ export async function POST(request: NextRequest) {
     const wrappedPermitSignature = await account.signTypedData(signData)
     const { signature: permitSignature } = parseErc6492Signature(wrappedPermitSignature)
 
-    // Prepare transfer calls using the new format
-    const calls = [{
-      to: usdc.address,
-      abi: usdc.abi,
-      functionName: 'transfer',
-      args: [to, amountInWei]
-    }]
+    // Two-step process: approve USDC to pool, then contribute
+    const calls = [
+      // Step 1: Approve USDC to pool contract for contribution
+      {
+        to: usdc.address,
+        abi: usdc.abi,
+        functionName: 'approve',
+        args: [poolAddress, contributionAmount]
+      },
+      // Step 2: Contribute to pool
+      {
+        to: pool.address,
+        abi: pool.abi,
+        functionName: 'contribute',
+        args: [contributionAmount]
+      }
+    ]
 
-    // Specify the USDC Token Paymaster with proper data encoding
+    console.log("Contribution calls:", calls.map(call => ({
+      to: call.to,
+      function: call.functionName,
+      args: call.args
+    })))
+
+    // EXACT same paymaster setup as working transfer
     const paymaster = ARBITRUM_SEPOLIA_PAYMASTER
     const paymasterData = encodePacked(
       ['uint8', 'address', 'uint256', 'bytes'],
@@ -182,7 +293,7 @@ export async function POST(request: NextRequest) {
       ]
     )
 
-    // Get additional gas charge from paymaster
+    // EXACT same gas estimation as working transfer
     const callResult = await client.call({
       to: paymaster,
       data: encodeFunctionData({
@@ -192,7 +303,6 @@ export async function POST(request: NextRequest) {
     })
     const additionalGasCharge = hexToBigInt(callResult?.data ?? '0x0')
 
-    // Get current gas prices
     const { standard: fees } = await bundlerClient.request({
       method: 'pimlico_getUserOperationGasPrice' as any
     }) as { standard: { maxFeePerGas: `0x${string}`, maxPriorityFeePerGas: `0x${string}` } }
@@ -200,7 +310,6 @@ export async function POST(request: NextRequest) {
     const maxFeePerGas = hexToBigInt(fees.maxFeePerGas)
     const maxPriorityFeePerGas = hexToBigInt(fees.maxPriorityFeePerGas)
 
-    // Estimate gas limits
     const {
       callGasLimit,
       preVerificationGas,
@@ -217,7 +326,7 @@ export async function POST(request: NextRequest) {
       maxPriorityFeePerGas: BigInt(1)
     })
 
-    // Send user operation with updated parameters
+    // EXACT same user operation as working transfer
     const userOpHash = await bundlerClient.sendUserOperation({
       account,
       calls,
@@ -235,7 +344,7 @@ export async function POST(request: NextRequest) {
       maxPriorityFeePerGas
     })
 
-    // Wait for transaction receipt
+    // EXACT same receipt handling as working transfer
     const receipt = await bundlerClient.waitForUserOperationReceipt({
       hash: userOpHash
     })
@@ -245,17 +354,35 @@ export async function POST(request: NextRequest) {
       userOperationHash: userOpHash,
       transactionHash: receipt.receipt.transactionHash,
       accountAddress: account.address,
-      message: 'Transaction submitted via Circle Paymaster on Arbitrum',
+      poolAddress,
+      contributionAmount: formatUnits(contributionAmount, 6),
+      message: 'Contribution successful via Circle Paymaster on Arbitrum',
       gasUsed: receipt.actualGasUsed.toString(),
       operationSuccess: receipt.success
     })
 
   } catch (error) {
-    console.error('Paymaster error:', error)
+    console.error('Contribution failed:', error)
+    
+    // Better error handling
+    let errorMessage = 'Contribution failed'
+    if (error instanceof Error) {
+      if (error.message.includes('AA33')) {
+        errorMessage = 'Insufficient USDC allowance for paymaster'
+      } else if (error.message.includes('AA23')) {
+        errorMessage = 'Paymaster validation failed'
+      } else if (error.message.includes('Max contributors reached')) {
+        errorMessage = 'Pool has reached maximum contributors'
+      } else if (error.message.includes('Would exceed target')) {
+        errorMessage = 'Contribution would exceed pool target'
+      } else {
+        errorMessage = error.message
+      }
+    }
     
     return NextResponse.json({
       success: false,
-      error: 'Paymaster error',
+      error: errorMessage,
       details: error instanceof Error ? error.message : 'Unknown error'
     })
   }

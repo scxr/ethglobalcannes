@@ -1,21 +1,19 @@
+// app/api/contracts/create-pool/route.ts
 import { NextRequest, NextResponse } from 'next/server'
-import { createPublicClient, http, getContract, encodeFunctionData, encodePacked, parseAbi, parseErc6492Signature, formatUnits, hexToBigInt, parseUnits } from 'viem'
+import { createPublicClient, http, getContract, encodeFunctionData, encodePacked, parseAbi, parseErc6492Signature, formatUnits, hexToBigInt } from 'viem'
 import { createBundlerClient } from 'viem/account-abstraction'
 import { arbitrumSepolia } from 'viem/chains'
 import { toEcdsaKernelSmartAccount } from 'permissionless/accounts'
 import { privateKeyToAccount } from 'viem/accounts'
 
-// Arbitrum Sepolia USDC contract address - try alternative if the main one fails
+// SAME as working transfer
 const ARBITRUM_SEPOLIA_USDC = '0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d'
-// Alternative USDC contracts to try if the main one fails:
-// const ARBITRUM_SEPOLIA_USDC = '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238' // Ethereum Sepolia USDC (sometimes works cross-chain)
-// const ARBITRUM_SEPOLIA_USDC = '0xbc47901f4d2c5fc871ae0037ea05c3f614690781' // Another USDC on Arbitrum Sepolia
-// Circle Paymaster contract address for Arbitrum Sepolia
 const ARBITRUM_SEPOLIA_PAYMASTER = '0x31BE08D380A21fc740883c0BC434FcFc88740b58'
-// Pimlico bundler for Arbitrum Sepolia
 const ARBITRUM_SEPOLIA_BUNDLER = `https://public.pimlico.io/v2/${arbitrumSepolia.id}/rpc`
-
 const MAX_GAS_USDC = BigInt(1000000) // 1 USDC for gas
+
+// Add your deployed factory address here
+const FACTORY_ADDRESS = '0x1f74ab8847339D7f91D049da75ceEB0f21E87827'
 
 const tokenAbi = parseAbi([
   'function balanceOf(address account) view returns (uint256)',
@@ -31,7 +29,13 @@ const tokenAbi = parseAbi([
   'function approve(address spender, uint256 amount) returns (bool)'
 ])
 
-// EIP-2612 permit helper function
+const factoryAbi = parseAbi([
+  'function createPool(string title, string description, uint256 targetAmount, address targetToken, uint256 deadline, uint256 maxContributors) returns (address)',
+  'function poolCount() view returns (uint256)',
+  'event PoolCreated(uint256 indexed poolId, address indexed poolAddress, address indexed creator, string title, uint256 targetAmount, address targetToken)'
+])
+
+// EXACT same permit function as working transfer
 async function eip2612Permit({
   token,
   chain,
@@ -81,10 +85,29 @@ async function eip2612Permit({
 
 export async function POST(request: NextRequest) {
   try {
-    let { from, to, data, chainId, amount } = await request.json()
+    const {
+      title,
+      description,
+      targetAmount,
+      targetToken,
+      deadline,
+      maxContributors,
+      userAddress,
+      chainId
+    } = await request.json()
+
     const privateKey = process.env.PRIVATE_KEY
 
-    console.log('Sponsoring transaction:', { from, to, amount, chainId })
+    console.log('Creating pool with paymaster:', {
+      title,
+      description,
+      targetAmount,
+      targetToken,
+      deadline,
+      maxContributors,
+      userAddress,
+      chainId
+    })
 
     if (!privateKey) {
       return NextResponse.json({
@@ -93,10 +116,10 @@ export async function POST(request: NextRequest) {
       })
     }
 
-    // Create clients with specific RPC URL for better reliability
+    // EXACT same client setup as working transfer
     const client = createPublicClient({
       chain: arbitrumSepolia,
-      transport: http('https://sepolia-rollup.arbitrum.io/rpc') // Official Arbitrum Sepolia RPC
+      transport: http('https://sepolia-rollup.arbitrum.io/rpc')
     })
 
     const bundlerClient = createBundlerClient({
@@ -104,7 +127,7 @@ export async function POST(request: NextRequest) {
       transport: http(ARBITRUM_SEPOLIA_BUNDLER)
     })
 
-    // Create accounts
+    // EXACT same account setup as working transfer
     const owner = privateKeyToAccount(privateKey as `0x${string}`)
     const account = await toEcdsaKernelSmartAccount({
       client,
@@ -112,18 +135,16 @@ export async function POST(request: NextRequest) {
       version: '0.3.1'
     })
 
-    // Setup USDC contract
+    // EXACT same USDC setup as working transfer
     const usdc = getContract({
       client,
       address: ARBITRUM_SEPOLIA_USDC,
       abi: tokenAbi,
     })
 
-    // Verify USDC balance first
     console.log("Account address:", account.address)
-    console.log("Account pk:", privateKey)
 
-    // First test if we can read basic contract info
+    // EXACT same contract verification as working transfer
     try {
       const name = await usdc.read.name()
       const symbol = await usdc.read.symbol()
@@ -138,18 +159,38 @@ export async function POST(request: NextRequest) {
       })
     }
 
+    // EXACT same balance check as working transfer
     const balance = await usdc.read.balanceOf([account.address])
-    console.log("Balance: ", balance)
-    const amountInWei = parseUnits(amount.toString(), 6)
+    console.log("Balance:", formatUnits(balance, 6), "USDC")
     
-    if (balance < amountInWei) {
+    if (balance < MAX_GAS_USDC) {
       return NextResponse.json({
         success: false,
-        error: `Insufficient USDC balance. Have: ${formatUnits(balance, 6)}, Need: ${formatUnits(amountInWei, 6)}`
+        error: `Insufficient USDC balance. Have: ${formatUnits(balance, 6)}, Need: ${formatUnits(MAX_GAS_USDC, 6)}`
       })
     }
 
-    // Construct and sign permit
+    // Setup factory contract
+    const factory = getContract({
+      client,
+      address: FACTORY_ADDRESS,
+      abi: factoryAbi,
+    })
+
+    // Check factory exists
+    try {
+      const poolCount = await factory.read.poolCount()
+      console.log("Current pool count:", poolCount.toString())
+    } catch (error) {
+      console.error("Error reading factory:", error)
+      return NextResponse.json({
+        success: false,
+        error: 'Factory contract not found. Please deploy the factory first.',
+        details: error instanceof Error ? error.message : 'Unknown error'
+      })
+    }
+
+    // EXACT same permit construction as working transfer
     const permitData = await eip2612Permit({
       token: usdc,
       chain: arbitrumSepolia,
@@ -162,15 +203,24 @@ export async function POST(request: NextRequest) {
     const wrappedPermitSignature = await account.signTypedData(signData)
     const { signature: permitSignature } = parseErc6492Signature(wrappedPermitSignature)
 
-    // Prepare transfer calls using the new format
+    // Pool creation call (only difference from transfer)
     const calls = [{
-      to: usdc.address,
-      abi: usdc.abi,
-      functionName: 'transfer',
-      args: [to, amountInWei]
+      to: factory.address,
+      abi: factory.abi,
+      functionName: 'createPool',
+      args: [
+        title,
+        description,
+        BigInt(targetAmount), // Target amount in USDC wei (6 decimals)
+        ARBITRUM_SEPOLIA_USDC, // Default to USDC if no target token
+        BigInt(deadline), // Unix timestamp
+        BigInt(maxContributors)
+      ]
     }]
 
-    // Specify the USDC Token Paymaster with proper data encoding
+    console.log("Factory call args:", calls[0].args)
+
+    // EXACT same paymaster setup as working transfer
     const paymaster = ARBITRUM_SEPOLIA_PAYMASTER
     const paymasterData = encodePacked(
       ['uint8', 'address', 'uint256', 'bytes'],
@@ -182,7 +232,7 @@ export async function POST(request: NextRequest) {
       ]
     )
 
-    // Get additional gas charge from paymaster
+    // EXACT same gas estimation as working transfer
     const callResult = await client.call({
       to: paymaster,
       data: encodeFunctionData({
@@ -192,7 +242,6 @@ export async function POST(request: NextRequest) {
     })
     const additionalGasCharge = hexToBigInt(callResult?.data ?? '0x0')
 
-    // Get current gas prices
     const { standard: fees } = await bundlerClient.request({
       method: 'pimlico_getUserOperationGasPrice' as any
     }) as { standard: { maxFeePerGas: `0x${string}`, maxPriorityFeePerGas: `0x${string}` } }
@@ -200,7 +249,6 @@ export async function POST(request: NextRequest) {
     const maxFeePerGas = hexToBigInt(fees.maxFeePerGas)
     const maxPriorityFeePerGas = hexToBigInt(fees.maxPriorityFeePerGas)
 
-    // Estimate gas limits
     const {
       callGasLimit,
       preVerificationGas,
@@ -217,7 +265,7 @@ export async function POST(request: NextRequest) {
       maxPriorityFeePerGas: BigInt(1)
     })
 
-    // Send user operation with updated parameters
+    // EXACT same user operation as working transfer
     const userOpHash = await bundlerClient.sendUserOperation({
       account,
       calls,
@@ -235,27 +283,50 @@ export async function POST(request: NextRequest) {
       maxPriorityFeePerGas
     })
 
-    // Wait for transaction receipt
+    // EXACT same receipt handling as working transfer
     const receipt = await bundlerClient.waitForUserOperationReceipt({
       hash: userOpHash
     })
+    
+    // Try to extract pool address from logs
+    let poolAddress = 'Check transaction logs'
+    try {
+      // Look for PoolCreated event in logs
+      const poolCreatedTopic = '0x...' // You'll need to calculate this topic hash
+      // Or just parse the receipt logs to find the pool address
+    } catch (e) {
+      console.log("Could not extract pool address from logs")
+    }
     
     return NextResponse.json({
       success: true,
       userOperationHash: userOpHash,
       transactionHash: receipt.receipt.transactionHash,
       accountAddress: account.address,
-      message: 'Transaction submitted via Circle Paymaster on Arbitrum',
+      poolAddress,
+      message: 'Pool created successfully via Circle Paymaster on Arbitrum',
       gasUsed: receipt.actualGasUsed.toString(),
       operationSuccess: receipt.success
     })
 
   } catch (error) {
-    console.error('Paymaster error:', error)
+    console.error('Pool creation failed:', error)
+    
+    // Better error handling
+    let errorMessage = 'Pool creation failed'
+    if (error instanceof Error) {
+      if (error.message.includes('AA33')) {
+        errorMessage = 'Insufficient USDC allowance for paymaster'
+      } else if (error.message.includes('AA23')) {
+        errorMessage = 'Paymaster validation failed'
+      } else {
+        errorMessage = error.message
+      }
+    }
     
     return NextResponse.json({
       success: false,
-      error: 'Paymaster error',
+      error: errorMessage,
       details: error instanceof Error ? error.message : 'Unknown error'
     })
   }

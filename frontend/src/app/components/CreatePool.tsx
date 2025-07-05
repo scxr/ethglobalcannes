@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { Plus, DollarSign, Users, Target } from 'lucide-react'
+import { useChipInContracts } from '@/hooks/useChipInContracts'
 
 export function CreatePool() {
   const [formData, setFormData] = useState({
@@ -12,11 +13,24 @@ export function CreatePool() {
     deadline: '',
     maxContributors: '10'
   })
+  const { createPool, isLoading, error } = useChipInContracts()
 
-  const handleSubmit = (e: React.FormEvent) => {
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     // TODO: Implement pool creation
     console.log('Creating pool:', formData)
+    const poolAddress = await createPool({
+      title: formData.title,
+      description: formData.description,
+      targetAmount: formData.targetAmount,
+      targetToken: formData.targetToken,
+      deadline: new Date(formData.deadline),
+      maxContributors: parseInt(formData.maxContributors)
+    })
+
+    console.log("Pool address: ", poolAddress)
+    
   }
 
   const tokens = [
