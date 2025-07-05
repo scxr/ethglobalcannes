@@ -2,12 +2,13 @@
 
 import { PrivyProvider } from '@privy-io/react-auth'
 import { WagmiProvider, createConfig, http } from 'wagmi'
-import { base, arbitrum } from 'wagmi/chains'
+import { base, arbitrum, baseSepolia, arbitrumSepolia } from 'wagmi/chains'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
 const config = createConfig({
-  chains: [base, arbitrum],
+  chains: [arbitrumSepolia, base, arbitrum],
   transports: {
+    [arbitrumSepolia.id]: http(),
     [base.id]: http(),
     [arbitrum.id]: http(),
   },
@@ -23,12 +24,14 @@ export function Providers({ children }: { children: React.ReactNode }) {
         appearance: {
           theme: 'light',
           accentColor: '#3B82F6',
+          showWalletLoginFirst: false,
         },
         embeddedWallets: {
           createOnLogin: 'users-without-wallets',
         },
-        defaultChain: base,
-        supportedChains: [base, arbitrum],
+        defaultChain: arbitrumSepolia,
+        supportedChains: [arbitrumSepolia],
+        
       }}
     >
       <QueryClientProvider client={queryClient}>

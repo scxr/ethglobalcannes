@@ -9,12 +9,16 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@circle-fin/user-controlled-wallets": "^8.3.0",
+    "@circle-fin/w3s-pw-web-sdk": "^1.1.11",
     "@privy-io/react-auth": "^2.17.3",
     "@privy-io/wagmi": "^1.0.5",
+    "@tanstack/react-query": "^5.81.5",
     "autoprefixer": "^10.4.21",
     "axios": "^1.10.0",
     "lucide-react": "^0.525.0",
     "next": "15.3.5",
+    "permissionless": "^0.2.49",
     "postcss": "^8.5.6",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
