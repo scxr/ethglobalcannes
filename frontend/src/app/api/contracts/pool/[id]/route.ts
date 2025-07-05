@@ -1,11 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { createPublicClient, http } from 'viem'
+import { arbitrumSepolia } from 'viem/chains'
+import poolAbi from '@/app/api/contracts/abis/pool.json'
+import facAbi from '@/app/api/contracts/abis/fac.json'
+import { formatUnits } from 'viem'
+
+const client = createPublicClient({
+  chain: arbitrumSepolia,
+  transport: http('https://sepolia-rollup.arbitrum.io/rpc')
+})
 
 export async function GET(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
   try {
-    const poolId = params.id
+    const { id } = await params
+    const poolId = id
 
     console.log('Fetching pool:', poolId)
 
@@ -75,24 +86,73 @@ export async function GET(
       }
     }
 
-    const pool = mockPools[poolId]
+    let poolInfo = await fetch(`http://localhost:8080/v1/graphql`, {
+      method: 'POST',
+      body: JSON.stringify({
+        query:`
+        query MyQuery {
+  ChipInFactory_PoolCreated(where: {poolId: {_eq: "${poolId}"}}) {
+    creator
+    poolAddress
+    id
+    poolId
+    targetAmount
+    targetToken
+    title
+  }
+}`
+      })})
+    let poolDataReq = await poolInfo.json()
+    let data = poolDataReq.data.ChipInFactory_PoolCreated[0]
+    console.log(data)
+    let poolData: any = await client.readContract({
+      address: data.poolAddress as `0x${string}`,
+      abi: poolAbi,
+      functionName: 'getPoolInfo'
+    })
+    let poolContributors = await client.readContract({
+      address: data.poolAddress as `0x${string}`,
+      abi: poolAbi,
+      functionName: 'getContributors'
+    })
 
-    if (!pool) {
+    let contributors = []
+    if ((poolContributors as any).length > 0) {
+      for (let i = 0; i < (poolContributors as any).length; i += 2) {
+        console.log((poolContributors as any)[i])
+        if ((poolContributors as any)[i+1] != "0") {
+        contributors.push({ address: (poolContributors as any)[i].toString(), amount: formatUnits((poolContributors as any)[i + 1], 6).toString() })
+      }
+    }
+  }
+    let poolStruct= {
+      id: poolId,
+      address: data.poolAddress as `0x${string}`,
+      title: poolData[0].toString(),
+      description: poolData[1].toString(),
+      targetAmount: formatUnits(poolData[2], 6).toString(),
+      currentAmount: formatUnits(poolData[3], 6).toString(),
+      targetToken: data.targetToken,
+      contributors: contributors,
+      maxContributors: 0,
+      deadline: poolData[5].toString(),
+      creator: data.creator,
+      goalReached: false,
+      executed: poolData[7].toString(),
+      cancelled: poolData[8].toString()
+    }
+    if (!poolStruct) {
       return NextResponse.json({
         success: false,
         error: 'Pool not found'
       }, { status: 404 })
     }
 
-    // In a real implementation, you would:
-    // 1. Get pool address from factory contract
-    // 2. Call pool.getPoolInfo() to get current data
-    // 3. Get contributors list
-    // 4. Check if pool is still active
+
     
     return NextResponse.json({
       success: true,
-      pool
+      pool: poolStruct
     })
 
   } catch (error) {

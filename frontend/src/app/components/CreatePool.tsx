@@ -106,7 +106,14 @@ export function CreatePool() {
             <label className="block text-sm font-medium text-gray-700 mb-2">
               Target Token
             </label>
-            <select
+            <input
+              type="text"
+              value={formData.targetToken}
+              onChange={(e) => setFormData({...formData, targetToken: e.target.value})}
+              className="form-input"
+              required
+            />
+            {/* <select
               value={formData.targetToken}
               onChange={(e) => setFormData({...formData, targetToken: e.target.value})}
               className="form-input"
@@ -116,7 +123,7 @@ export function CreatePool() {
                   {token.symbol} - {token.name}
                 </option>
               ))}
-            </select>
+            </select> */}
           </div>
         </div>
 

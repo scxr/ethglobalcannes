@@ -6,7 +6,14 @@ import { usePrivy } from '@privy-io/react-auth'
 import { Share2, Users, Clock, DollarSign, Heart, ArrowLeft } from 'lucide-react'
 import Link from 'next/link'
 import { ContributionForm } from '@/app/components/ContributionForm'
+import { createPublicClient, http } from 'viem'
+import { arbitrumSepolia } from 'viem/chains'
+import { ExecuteButton } from '@/app/components/ExecuteButton'
 
+const client = createPublicClient({
+  chain: arbitrumSepolia,
+  transport: http('https://arbitrum-sepolia.gateway.tenderly.co')
+})
 interface Pool {
   id: string
   address: string
@@ -222,16 +229,16 @@ export default function PoolPage() {
                       </button>
                     </div>
                   ) : pool.currentAmount >= pool.targetAmount ? (
-                    <div className="p-6 bg-green-50 border-green-200 rounded-lg text-center border">
-                      <div className="text-4xl mb-2">🎉</div>
-                      <h4 className="text-lg font-semibold text-green-600 mb-2">Goal Reached!</h4>
-                      <p className="text-green-600 mb-4">
-                        This pool has reached its target and is ready to purchase {pool.targetToken}
-                      </p>
-                      <button className="btn" style={{ background: '#059669', color: 'white' }}>
-                        Execute Purchase
-                      </button>
-                    </div>
+                    <ExecuteButton
+                    poolId={pool.id}
+                    poolAddress={pool.address}
+                    targetToken={pool.targetToken}
+                    usdcAmount={pool.currentAmount}
+                    onSuccess={() => {
+                      // Refresh pool data
+                      fetchPool()
+                    }}
+                  />
                   ) : (
                     <ContributionForm
                       poolAddress={pool.address}
