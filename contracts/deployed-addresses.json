@@ -1,9 +1,9 @@
 {
-  "factory": "0x1f74ab8847339D7f91D049da75ceEB0f21E87827",
-  "registry": "0xbadD8B6989160f7cC56311bBFCB13C549621AFD0",
+  "factory": "0x108c416A6Cb34cea4A1C93F749B347e1dE3C65e8",
   "usdc": "0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d",
-  "oneInchRouter": "0x1111111254eeb25477b68fb85ed929f73a960582",
+  "uniswapRouter": "0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45",
   "network": "arbitrumSepolia",
   "deployer": "0x23f5DC1Ef0Ef3D2897fbf8F6cCDc23F462625A62",
-  "deployedAt": "2025-07-05T16:03:24.660Z"
+  "deployedAt": "2025-07-05T23:35:21.797Z",
+  "testPoolAddress": "0x521868406baa66296647D1CAe1092a48FCF2A56d"
 }

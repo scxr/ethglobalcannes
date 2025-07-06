@@ -226,7 +226,7 @@ export async function POST(request: NextRequest) {
 
     // Convert contribution amount
     const contributionAmount = BigInt(amount) // Amount should be in USDC wei (6 decimals)
-    const totalNeeded = contributionAmount + MAX_GAS_USDC // Need amount + gas
+    const totalNeeded = contributionAmount// Need amount + gas
 
     // EXACT same balance check as working transfer
     const balance = await usdc.read.balanceOf([account.address])

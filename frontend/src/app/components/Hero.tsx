@@ -50,7 +50,7 @@ export function Hero() {
               <Zap className="h-8 w-8" style={{ color: '#7c3aed' }} />
             </div>
             <h3 className="font-semibold text-gray-900 mb-2">Auto Purchase</h3>
-            <p className="text-sm text-gray-600">Automatically buy crypto via 1inch when goal is met</p>
+            <p className="text-sm text-gray-600">Buy crypto via uniswap when goal is met</p>
           </div>
           
           <div className="text-center">

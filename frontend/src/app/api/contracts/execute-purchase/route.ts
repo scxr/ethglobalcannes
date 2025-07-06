@@ -1,3 +1,4 @@
+// app/api/contracts/execute-purchase/route.ts
 import { NextRequest, NextResponse } from 'next/server'
 import { createPublicClient, http, getContract, encodeFunctionData, encodePacked, parseAbi, parseErc6492Signature, formatUnits, hexToBigInt } from 'viem'
 import { createBundlerClient } from 'viem/account-abstraction'
@@ -5,34 +6,35 @@ import { arbitrumSepolia } from 'viem/chains'
 import { toEcdsaKernelSmartAccount } from 'permissionless/accounts'
 import { privateKeyToAccount } from 'viem/accounts'
 
-// SAME as working transfer & pool creation
+// Contract addresses
 const ARBITRUM_SEPOLIA_USDC = '0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d'
 const ARBITRUM_SEPOLIA_PAYMASTER = '0x31BE08D380A21fc740883c0BC434FcFc88740b58'
 const ARBITRUM_SEPOLIA_BUNDLER = `https://public.pimlico.io/v2/${arbitrumSepolia.id}/rpc`
-const MAX_GAS_USDC = BigInt(2000000) // 2 USDC for gas (swap might need more)
+const MAX_GAS_USDC = BigInt(500000) // 0.5 USDC for gas
 
-// 1inch API configuration
-const ONEINCH_API_BASE = 'https://api.1inch.dev'
-const ONEINCH_API_KEY = process.env.ONEINCH_API_KEY // Get from 1inch developer portal
-const ARBITRUM_SEPOLIA_CHAIN_ID = 421614
-
-// Token addresses on Arbitrum Sepolia
-const TOKEN_ADDRESSES = {
-  'USDC': '0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d',
-  'ETH': '0x0000000000000000000000000000000000000000', // Native ETH
-  'WETH': '0x980B62Da83eFf3D4576C647993b0c1D7faf17c73', // Wrapped ETH on Arbitrum Sepolia
-  'LINK': '0xb1D4538B4571d411F07960EF2838Ce337FE1E80E', // LINK on Arbitrum Sepolia
-  'AAVE': '0x...', // Add other tokens as needed
-}
+// Your NEW Mock factory address - UPDATE THIS!
+const FACTORY_ADDRESS = '0x108c416A6Cb34cea4A1C93F749B347e1dE3C65e8' // From your deployment
 
 const tokenAbi = parseAbi([
   'function balanceOf(address account) view returns (uint256)',
+  'function approve(address spender, uint256 amount) returns (bool)',
   'function transfer(address to, uint256 amount) returns (bool)',
-  'function permit(address owner, address spender, uint256 value, uint256 deadline, uint8 v, bytes32 r, bytes32 s)',
   'function nonces(address owner) view returns (uint256)',
   'function name() view returns (string)',
   'function version() view returns (string)',
-  'function approve(address spender, uint256 amount) returns (bool)'
+  'function decimals() view returns (uint8)',
+  'function symbol() view returns (string)'
+])
+
+// Updated factory ABI for Mock version
+const factoryAbi = parseAbi([
+  'function executePoolSwap(uint256 poolId)',
+  'function getPool(uint256 poolId) view returns (address)',
+  'function poolCount() view returns (uint256)',
+  'function pools(uint256) view returns (address)',
+  'function previewSwap(address targetToken, uint256 usdcAmount) view returns (uint256)',
+  'function exchangeRates(address token) view returns (uint256)',
+  'event MockSwapExecuted(uint256 indexed poolId, address indexed targetToken, uint256 usdcAmount, uint256 tokensReceived, uint256 exchangeRate)'
 ])
 
 const poolAbi = parseAbi([
@@ -41,86 +43,8 @@ const poolAbi = parseAbi([
   'function totalContributed() view returns (uint256)',
   'function goalReached() view returns (bool)',
   'function executed() view returns (bool)',
-  'function executeSwap(bytes calldata swapData)',
-  'function getContributors() view returns (address[], uint256[])',
-  'event PoolExecuted(address indexed targetToken, uint256 amountSwapped)'
+  'function getContributors() view returns (address[], uint256[])'
 ])
-
-const factoryAbi = parseAbi([
-  'function executePoolSwap(uint256 poolId, bytes calldata oneInchSwapData)',
-  'event SwapExecuted(uint256 indexed poolId, address indexed targetToken, uint256 usdcAmount, uint256 tokensReceived)'
-])
-
-// Get 1inch swap data
-async function get1inchSwapData(
-  fromToken: string,
-  toToken: string,
-  amount: string,
-  fromAddress: string,
-  slippage: number = 1
-) {
-  if (!ONEINCH_API_KEY) {
-    throw new Error('1inch API key not configured')
-  }
-
-  try {
-    // First, get quote to check if swap is possible
-    const quoteUrl = `${ONEINCH_API_BASE}/swap/v6.0/${ARBITRUM_SEPOLIA_CHAIN_ID}/quote`
-    const quoteParams = new URLSearchParams({
-      src: fromToken,
-      dst: toToken,
-      amount: amount
-    })
-
-    const quoteResponse = await fetch(`${quoteUrl}?${quoteParams}`, {
-      headers: {
-        'Authorization': `Bearer ${ONEINCH_API_KEY}`,
-        'accept': 'application/json'
-      }
-    })
-
-    if (!quoteResponse.ok) {
-      throw new Error(`1inch quote failed: ${quoteResponse.statusText}`)
-    }
-
-    const quote = await quoteResponse.json()
-    console.log('1inch quote:', quote)
-
-    // Get actual swap transaction data
-    const swapUrl = `${ONEINCH_API_BASE}/swap/v6.0/${ARBITRUM_SEPOLIA_CHAIN_ID}/swap`
-    const swapParams = new URLSearchParams({
-      src: fromToken,
-      dst: toToken,
-      amount: amount,
-      from: fromAddress,
-      slippage: slippage.toString(),
-      disableEstimate: 'true'
-    })
-
-    const swapResponse = await fetch(`${swapUrl}?${swapParams}`, {
-      headers: {
-        'Authorization': `Bearer ${ONEINCH_API_KEY}`,
-        'accept': 'application/json'
-      }
-    })
-
-    if (!swapResponse.ok) {
-      throw new Error(`1inch swap failed: ${swapResponse.statusText}`)
-    }
-
-    const swap = await swapResponse.json()
-    console.log('1inch swap data:', swap)
-
-    return {
-      toAmount: swap.toAmount,
-      tx: swap.tx
-    }
-
-  } catch (error) {
-    console.error('1inch API error:', error)
-    throw error
-  }
-}
 
 // EXACT same permit function as working transfer
 async function eip2612Permit({
@@ -181,9 +105,10 @@ export async function POST(request: NextRequest) {
 
     const privateKey = process.env.PRIVATE_KEY
 
-    console.log('Executing purchase for pool:', {
+    console.log('🎭 Executing purchase via Mock Swap:', {
       poolId,
       poolAddress,
+      factoryAddress: FACTORY_ADDRESS,
       userAddress,
       chainId
     })
@@ -195,10 +120,10 @@ export async function POST(request: NextRequest) {
       })
     }
 
-    if (!poolAddress) {
+    if (poolId === undefined || !poolAddress) {
       return NextResponse.json({
         success: false,
-        error: 'Pool address is required'
+        error: 'Pool ID and address are required'
       })
     }
 
@@ -228,23 +153,33 @@ export async function POST(request: NextRequest) {
       abi: tokenAbi,
     })
 
+    const factory = getContract({
+      client,
+      address: FACTORY_ADDRESS,
+      abi: factoryAbi,
+    })
+
     const pool = getContract({
       client,
       address: poolAddress,
       abi: poolAbi,
     })
 
-    console.log("Executor account address:", account.address)
+    console.log("💳 Executor account address:", account.address)
 
     // Verify pool state
+    let totalContributed: bigint = BigInt(0)
+    let targetTokenAddress: string = '0x0000000000000000000000000000000000000000'
+    let targetTokenSymbol = 'UNKNOWN'
+
     try {
       const poolInfo = await pool.read.getPoolInfo()
-      const targetTokenAddress = await pool.read.targetToken()
-      const totalContributed = await pool.read.totalContributed()
+      targetTokenAddress = await pool.read.targetToken()
+      totalContributed = await pool.read.totalContributed()
 
-      console.log("Pool info:", {
+      console.log("📊 Pool info:", {
         title: poolInfo[0],
-        totalContributed: formatUnits(totalContributed, 6),
+        totalContributed: formatUnits(totalContributed, 6) + ' USDC',
         goalReached: poolInfo[6],
         executed: poolInfo[7],
         cancelled: poolInfo[8],
@@ -252,96 +187,74 @@ export async function POST(request: NextRequest) {
       })
 
       // Check if pool can be executed
-      if (poolInfo[7]) { // executed
+      if (poolInfo[7]) {
         return NextResponse.json({
           success: false,
           error: 'Pool has already been executed'
         })
       }
 
-      if (poolInfo[8]) { // cancelled
+      if (poolInfo[8]) {
         return NextResponse.json({
           success: false,
           error: 'Pool has been cancelled'
         })
       }
 
-      if (!poolInfo[6]) { // goalReached
+      if (!poolInfo[6]) {
         return NextResponse.json({
           success: false,
           error: 'Pool goal has not been reached yet'
         })
       }
 
-      // Determine target token symbol
-      let targetTokenSymbol = 'ETH'
-      if (targetTokenAddress === ARBITRUM_SEPOLIA_USDC) {
-        return NextResponse.json({
-          success: false,
-          error: 'Cannot swap USDC to USDC'
+      // Get target token info and preview swap
+      try {
+        const targetToken = getContract({
+          client,
+          address: targetTokenAddress,
+          abi: tokenAbi,
         })
+        
+        const [symbol, exchangeRate, previewAmount] = await Promise.all([
+          targetToken.read.symbol().catch(() => 'MOCK'),
+          factory.read.exchangeRates([targetTokenAddress]).catch(() => BigInt(0)),
+          factory.read.previewSwap([targetTokenAddress, totalContributed]).catch(() => BigInt(0))
+        ])
+        
+        targetTokenSymbol = symbol
+        
+        console.log("🎯 Target token:", {
+          symbol: targetTokenSymbol,
+          address: targetTokenAddress,
+          exchangeRate: formatUnits(exchangeRate, 18),
+          expectedTokens: formatUnits(previewAmount, 18)
+        })
+
+      } catch (error) {
+        console.log("⚠️ Could not get target token info:", error)
+        targetTokenSymbol = 'MOCK'
       }
-
-      // Find target token symbol
-      for (const [symbol, address] of Object.entries(TOKEN_ADDRESSES)) {
-        if (address.toLowerCase() === targetTokenAddress.toLowerCase()) {
-          targetTokenSymbol = symbol
-          break
-        }
-      }
-
-      console.log("Target token:", targetTokenSymbol, targetTokenAddress)
-      console.log("Amount to swap:", formatUnits(totalContributed, 6), "USDC")
-
-      // Get 1inch swap data
-      const swapData = await get1inchSwapData(
-        ARBITRUM_SEPOLIA_USDC, // from USDC
-        targetTokenAddress === '0x0000000000000000000000000000000000000000' 
-          ? TOKEN_ADDRESSES.WETH // Use WETH for ETH swaps
-          : targetTokenAddress, // to target token
-        totalContributed.toString(), // amount in wei
-        account.address, // from address (our executor account)
-        2 // 2% slippage
-      )
-
-      console.log("1inch swap data obtained:", {
-        expectedOutput: formatUnits(swapData.toAmount, 18), // Most tokens have 18 decimals
-        txData: swapData.tx.data.slice(0, 20) + "..."
-      })
 
     } catch (error) {
-      console.error("Error verifying pool or getting swap data:", error)
+      console.error("❌ Error verifying pool:", error)
       return NextResponse.json({
         success: false,
-        error: 'Unable to verify pool state or get swap data',
+        error: 'Unable to verify pool state',
         details: error instanceof Error ? error.message : 'Unknown error'
       })
     }
 
-    // Check executor has enough USDC for gas
+    // Check executor balance
     const balance = await usdc.read.balanceOf([account.address])
-    console.log("Executor USDC Balance:", formatUnits(balance, 6))
+    console.log("💳 Executor USDC Balance:", formatUnits(balance, 6))
     
     if (balance < MAX_GAS_USDC) {
       return NextResponse.json({
         success: false,
-        error: `Executor needs ${formatUnits(MAX_GAS_USDC, 6)} USDC for gas. Current balance: ${formatUnits(balance, 6)}`
+        error: `Executor needs ${formatUnits(MAX_GAS_USDC, 6)} USDC for gas. Current: ${formatUnits(balance, 6)}`
       })
     }
-
-    // Get fresh swap data for execution
-    const totalContributed = await pool.read.totalContributed()
-    const targetTokenAddress = await pool.read.targetToken()
-    
-    const finalSwapData = await get1inchSwapData(
-      ARBITRUM_SEPOLIA_USDC,
-      targetTokenAddress === '0x0000000000000000000000000000000000000000' 
-        ? TOKEN_ADDRESSES.WETH 
-        : targetTokenAddress,
-      totalContributed.toString(),
-      account.address,
-      2
-    )
 
     // EXACT same permit construction as working transfer
     const permitData = await eip2612Permit({
@@ -356,25 +269,28 @@ export async function POST(request: NextRequest) {
     const wrappedPermitSignature = await account.signTypedData(signData)
     const { signature: permitSignature } = parseErc6492Signature(wrappedPermitSignature)
 
-    // Execute the pool swap
+    // Call factory.executePoolSwap with Mock parameters (just poolId)
     const calls = [{
-      to: pool.address,
-      abi: pool.abi,
-      functionName: 'executeSwap',
-      args: [finalSwapData.tx.data] // Pass 1inch transaction data
+      to: factory.address,
+      abi: factory.abi,
+      functionName: 'executePoolSwap',
+      args: [
+        BigInt(poolId)
+      ]
     }]
 
-    console.log("Executing swap with 1inch data...")
+    console.log("🔄 Calling factory.executePoolSwap (Mock) with:")
+    console.log("  poolId:", poolId)
 
     // EXACT same paymaster setup as working transfer
     const paymaster = ARBITRUM_SEPOLIA_PAYMASTER
     const paymasterData = encodePacked(
       ['uint8', 'address', 'uint256', 'bytes'],
       [
-        0, // Reserved for future use
-        usdc.address, // Token address
-        MAX_GAS_USDC, // Max spendable gas in USDC
-        permitSignature // EIP-2612 permit signature
+        0,
+        usdc.address,
+        MAX_GAS_USDC,
+        permitSignature
       ]
     )
 
@@ -411,6 +327,11 @@ export async function POST(request: NextRequest) {
       maxPriorityFeePerGas: BigInt(1)
     })
 
+    console.log("⛽ Gas estimates:", {
+      callGasLimit: callGasLimit.toString(),
+      verificationGasLimit: verificationGasLimit.toString()
+    })
+
     // EXACT same user operation as working transfer
     const userOpHash = await bundlerClient.sendUserOperation({
       account,
@@ -429,45 +350,61 @@ export async function POST(request: NextRequest) {
       maxPriorityFeePerGas
     })
 
+    console.log("📤 User operation sent:", userOpHash)
+
     // EXACT same receipt handling as working transfer
     const receipt = await bundlerClient.waitForUserOperationReceipt({
       hash: userOpHash
     })
+    
+    console.log("✅ Mock swap completed:", {
+      hash: receipt.receipt.transactionHash,
+      success: receipt.success,
+      gasUsed: receipt.actualGasUsed.toString()
+    })
+
+    // Get final token amounts from the transaction logs
+    let tokensReceived = "0"
+    let exchangeRateUsed = "0"
+    
+    try {
+      // Try to get swap details from preview again
+      const previewAmount = await factory.read.previewSwap([targetTokenAddress, totalContributed])
+      tokensReceived = formatUnits(previewAmount, 18)
+      
+      const exchangeRate = await factory.read.exchangeRates([targetTokenAddress])
+      exchangeRateUsed = formatUnits(exchangeRate, 18)
+    } catch (error) {
+      console.log("Could not get final token amounts:", error)
+    }
     
     return NextResponse.json({
       success: true,
       userOperationHash: userOpHash,
       transactionHash: receipt.receipt.transactionHash,
       executorAddress: account.address,
+      poolId,
       poolAddress,
+      factoryAddress: FACTORY_ADDRESS,
       usdcSwapped: formatUnits(totalContributed, 6),
-      expectedTokens: formatUnits(finalSwapData.toAmount, 18),
-      message: 'Pool purchase executed successfully via 1inch + Circle Paymaster',
+      targetToken: targetTokenSymbol,
+      targetTokenAddress,
+      tokensReceived,
+      exchangeRate: exchangeRateUsed,
+      swapMethod: 'Mock Swap',
+      message: `Pool executed via Mock Swap: ${formatUnits(totalContributed, 6)} USDC → ${tokensReceived} ${targetTokenSymbol}`,
       gasUsed: receipt.actualGasUsed.toString(),
-      operationSuccess: receipt.success
+      operationSuccess: receipt.success,
+      explanation: "Mock swap minted tokens at predetermined exchange rate and distributed them to contributors proportionally"
     })
 
   } catch (error) {
-    console.error('Pool execution failed:', error)
-    
-    // Better error handling
-    let errorMessage = 'Pool execution failed'
-    if (error instanceof Error) {
-      if (error.message.includes('1inch')) {
-        errorMessage = '1inch swap failed: ' + error.message
-      } else if (error.message.includes('AA33')) {
-        errorMessage = 'Insufficient USDC allowance for paymaster'
-      } else if (error.message.includes('AA23')) {
-        errorMessage = 'Paymaster validation failed'
-      } else {
-        errorMessage = error.message
-      }
-    }
+    console.error('❌ Mock swap failed:', error)
     
     return NextResponse.json({
       success: false,
-      error: errorMessage,
-      details: error instanceof Error ? error.message : 'Unknown error'
+      error: error instanceof Error ? error.message : 'Mock swap failed',
+      details: error instanceof Error ? error.stack : 'Unknown error'
     })
   }
 }

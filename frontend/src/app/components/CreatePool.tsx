@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Plus, DollarSign, Users, Target } from 'lucide-react'
+import { Plus, DollarSign, Users, Target, CheckCircle, AlertCircle } from 'lucide-react'
 import { useChipInContracts } from '@/hooks/useChipInContracts'
 
 export function CreatePool() {
@@ -13,24 +13,45 @@ export function CreatePool() {
     deadline: '',
     maxContributors: '10'
   })
+  const [successMessage, setSuccessMessage] = useState('')
+  const [createdPoolAddress, setCreatedPoolAddress] = useState('')
   const { createPool, isLoading, error } = useChipInContracts()
-
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    // TODO: Implement pool creation
-    console.log('Creating pool:', formData)
-    const poolAddress = await createPool({
-      title: formData.title,
-      description: formData.description,
-      targetAmount: formData.targetAmount,
-      targetToken: formData.targetToken,
-      deadline: new Date(formData.deadline),
-      maxContributors: parseInt(formData.maxContributors)
-    })
-
-    console.log("Pool address: ", poolAddress)
+    // Clear previous messages
+    setSuccessMessage('')
+    setCreatedPoolAddress('')
     
+    try {
+      console.log('Creating pool:', formData)
+      const poolAddress = await createPool({
+        title: formData.title,
+        description: formData.description,
+        targetAmount: formData.targetAmount,
+        targetToken: formData.targetToken,
+        deadline: new Date(formData.deadline),
+        maxContributors: parseInt(formData.maxContributors)
+      })
+
+      console.log("Pool address: ", poolAddress)
+      
+      if (poolAddress) {
+        setSuccessMessage('Pool created successfully!')
+        setCreatedPoolAddress(poolAddress)
+        // Reset form
+        setFormData({
+          title: '',
+          description: '',
+          targetAmount: '',
+          targetToken: 'ETH',
+          deadline: '',
+          maxContributors: '10'
+        })
+      }
+    } catch (err) {
+      console.error('Error creating pool:', err)
+    }
   }
 
   const tokens = [
@@ -49,6 +70,36 @@ export function CreatePool() {
         <p className="text-gray-600">Set up a shared funding goal with friends</p>
       </div>
 
+      {/* Success Message */}
+      {successMessage && (
+        <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg">
+          <div className="flex items-center">
+            <CheckCircle className="h-5 w-5 text-green-600 mr-2" />
+            <div>
+              <h3 className="text-sm font-medium text-green-800">{successMessage}</h3>
+              {createdPoolAddress && (
+                <p className="text-xs text-green-700 mt-1">
+                  Pool Address: <span className="font-mono">{createdPoolAddress}</span>
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Error Message */}
+      {error && (
+        <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
+          <div className="flex items-center">
+            <AlertCircle className="h-5 w-5 text-red-600 mr-2" />
+            <div>
+              <h3 className="text-sm font-medium text-red-800">Error creating pool</h3>
+              <p className="text-xs text-red-700 mt-1">{error}</p>
+            </div>
+          </div>
+        </div>
+      )}
+
       <form onSubmit={handleSubmit} className="space-y-6">
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -61,6 +112,7 @@ export function CreatePool() {
             placeholder="e.g., Let's buy ETH together!"
             className="form-input"
             required
+            disabled={isLoading}
           />
         </div>
 
@@ -75,6 +127,7 @@ export function CreatePool() {
             rows={3}
             className="form-input"
             style={{ resize: 'vertical' }}
+            disabled={isLoading}
           />
         </div>
 
@@ -98,6 +151,7 @@ export function CreatePool() {
                 className="form-input"
                 style={{ paddingLeft: '2.5rem' }}
                 required
+                disabled={isLoading}
               />
             </div>
           </div>
@@ -112,6 +166,7 @@ export function CreatePool() {
               onChange={(e) => setFormData({...formData, targetToken: e.target.value})}
               className="form-input"
               required
+              disabled={isLoading}
             />
             {/* <select
               value={formData.targetToken}
@@ -138,6 +193,7 @@ export function CreatePool() {
               onChange={(e) => setFormData({...formData, deadline: e.target.value})}
               className="form-input"
               required
+              disabled={isLoading}
             />
           </div>
 
@@ -161,6 +217,7 @@ export function CreatePool() {
                 className="form-input"
                 style={{ paddingLeft: '2.5rem' }}
                 required
+                disabled={isLoading}
               />
             </div>
           </div>
@@ -169,9 +226,10 @@ export function CreatePool() {
         <button
           type="submit"
           className="btn btn-primary w-full"
+          disabled={isLoading}
         >
           <Target className="h-5 w-5" />
-          <span>Create Pool</span>
+          <span>{isLoading ? 'Creating Pool...' : 'Create Pool'}</span>
         </button>
       </form>
     </div>

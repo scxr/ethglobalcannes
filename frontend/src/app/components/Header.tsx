@@ -22,7 +22,9 @@ export function Header() {
               <div className="flex items-center space-x-4">
                 <div className="text-sm text-gray-600">
                   {user.wallet?.address && (
-                    <span style={{ fontFamily: 'monospace' }}>
+                    <span style={{ fontFamily: 'monospace' }} onClick={() => {
+                      navigator.clipboard.writeText(user?.wallet?.address || '')
+                    }}>
                       {user.wallet.address.slice(0, 6)}...{user.wallet.address.slice(-4)}
                     </span>
                   )}

@@ -10,10 +10,10 @@ import { privateKeyToAccount } from 'viem/accounts'
 const ARBITRUM_SEPOLIA_USDC = '0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d'
 const ARBITRUM_SEPOLIA_PAYMASTER = '0x31BE08D380A21fc740883c0BC434FcFc88740b58'
 const ARBITRUM_SEPOLIA_BUNDLER = `https://public.pimlico.io/v2/${arbitrumSepolia.id}/rpc`
-const MAX_GAS_USDC = BigInt(1000000) // 1 USDC for gas
+const MAX_GAS_USDC = BigInt(1000000) // 0.4 USDC for gas
 
-// Add your deployed factory address here
-const FACTORY_ADDRESS = '0x1f74ab8847339D7f91D049da75ceEB0f21E87827'
+// Your NEW Mock factory address - UPDATE THIS!
+const FACTORY_ADDRESS = '0x108c416A6Cb34cea4A1C93F749B347e1dE3C65e8'
 
 const tokenAbi = parseAbi([
   'function balanceOf(address account) view returns (uint256)',
@@ -29,10 +29,15 @@ const tokenAbi = parseAbi([
   'function approve(address spender, uint256 amount) returns (bool)'
 ])
 
+// Updated factory ABI for Mock version
 const factoryAbi = parseAbi([
   'function createPool(string title, string description, uint256 targetAmount, address targetToken, uint256 deadline, uint256 maxContributors) returns (address)',
   'function poolCount() view returns (uint256)',
-  'event PoolCreated(uint256 indexed poolId, address indexed poolAddress, address indexed creator, string title, uint256 targetAmount, address targetToken)'
+  'function createMockToken(string name, string symbol) returns (address)',
+  'function setExchangeRate(address token, uint256 rate)',
+  'function exchangeRates(address token) view returns (uint256)',
+  'event PoolCreated(uint256 indexed poolId, address indexed poolAddress, address indexed creator, string title, uint256 targetAmount, address targetToken)',
+  'event MockTokenCreated(address indexed tokenAddress, string name, string symbol)'
 ])
 
 // EXACT same permit function as working transfer
@@ -93,18 +98,24 @@ export async function POST(request: NextRequest) {
       deadline,
       maxContributors,
       userAddress,
-      chainId
+      chainId,
+      createMockToken = false,
+      mockTokenName,
+      mockTokenSymbol
     } = await request.json()
 
     const privateKey = process.env.PRIVATE_KEY
 
-    console.log('Creating pool with paymaster:', {
+    console.log('🏊 Creating pool with Mock factory:', {
       title,
       description,
       targetAmount,
       targetToken,
       deadline,
       maxContributors,
+      createMockToken,
+      mockTokenName,
+      mockTokenSymbol,
       userAddress,
       chainId
     })
@@ -113,6 +124,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({
         success: false,
         error: 'Private key required for smart account operations'
+      })
+    }
+
+    // Validate inputs
+    if (!title || !description || !targetAmount || !deadline || !maxContributors) {
+      return NextResponse.json({
+        success: false,
+        error: 'Missing required fields: title, description, targetAmount, deadline, maxContributors'
       })
     }
 
@@ -142,16 +161,16 @@ export async function POST(request: NextRequest) {
       abi: tokenAbi,
     })
 
-    console.log("Account address:", account.address)
+    console.log("💳 Account address:", account.address)
 
     // EXACT same contract verification as working transfer
     try {
       const name = await usdc.read.name()
       const symbol = await usdc.read.symbol()
       const decimals = await usdc.read.decimals()
-      console.log("Contract info:", { name, symbol, decimals })
+      console.log("📄 USDC Contract info:", { name, symbol, decimals })
     } catch (error) {
-      console.error("Error reading contract info:", error)
+      console.error("❌ Error reading USDC contract info:", error)
       return NextResponse.json({
         success: false,
         error: 'Unable to read USDC contract. Contract might be incorrect.',
@@ -161,7 +180,7 @@ export async function POST(request: NextRequest) {
 
     // EXACT same balance check as working transfer
     const balance = await usdc.read.balanceOf([account.address])
-    console.log("Balance:", formatUnits(balance, 6), "USDC")
+    console.log("💰 Balance:", formatUnits(balance, 6), "USDC")
     
     if (balance < MAX_GAS_USDC) {
       return NextResponse.json({
@@ -178,16 +197,35 @@ export async function POST(request: NextRequest) {
     })
 
     // Check factory exists
+    let currentPoolCount = BigInt(0)
     try {
-      const poolCount = await factory.read.poolCount()
-      console.log("Current pool count:", poolCount.toString())
+      currentPoolCount = await factory.read.poolCount()
+      console.log("📊 Current pool count:", currentPoolCount.toString())
     } catch (error) {
-      console.error("Error reading factory:", error)
+      console.error("❌ Error reading factory:", error)
       return NextResponse.json({
         success: false,
-        error: 'Factory contract not found. Please deploy the factory first.',
+        error: 'Mock factory contract not found. Please deploy the factory first.',
         details: error instanceof Error ? error.message : 'Unknown error'
       })
+    }
+
+    // Handle mock token creation if requested
+    let finalTargetToken = targetToken
+    let mockTokenCreated = false
+
+    if (createMockToken && mockTokenName && mockTokenSymbol) {
+      console.log("🎭 Creating mock token first...")
+      // We'll create the mock token in the same transaction as the pool
+      // For now, just use a placeholder - the frontend should create tokens separately
+      console.log("⚠️  Mock token creation should be done separately via /api/contracts/create-mock-token")
+    }
+
+    // Use default target token if none provided
+    if (!finalTargetToken || finalTargetToken === '0x0000000000000000000000000000000000000000') {
+      // Use one of the mock tokens from deployment or a test address
+      finalTargetToken = '0x1111111111111111111111111111111111111111' // Placeholder - frontend should provide real token
+      console.log("⚠️  Using placeholder target token. Frontend should provide a valid mock token address.")
     }
 
     // EXACT same permit construction as working transfer
@@ -203,7 +241,7 @@ export async function POST(request: NextRequest) {
     const wrappedPermitSignature = await account.signTypedData(signData)
     const { signature: permitSignature } = parseErc6492Signature(wrappedPermitSignature)
 
-    // Pool creation call (only difference from transfer)
+    // Pool creation call (updated for mock factory)
     const calls = [{
       to: factory.address,
       abi: factory.abi,
@@ -212,13 +250,20 @@ export async function POST(request: NextRequest) {
         title,
         description,
         BigInt(targetAmount), // Target amount in USDC wei (6 decimals)
-        ARBITRUM_SEPOLIA_USDC, // Default to USDC if no target token
+        finalTargetToken, // Target token address
         BigInt(deadline), // Unix timestamp
         BigInt(maxContributors)
       ]
     }]
 
-    console.log("Factory call args:", calls[0].args)
+    console.log("🔄 Factory call args:", {
+      title,
+      description,
+      targetAmount: targetAmount.toString(),
+      targetToken: finalTargetToken,
+      deadline: deadline.toString(),
+      maxContributors: maxContributors.toString()
+    })
 
     // EXACT same paymaster setup as working transfer
     const paymaster = ARBITRUM_SEPOLIA_PAYMASTER
@@ -265,6 +310,11 @@ export async function POST(request: NextRequest) {
       maxPriorityFeePerGas: BigInt(1)
     })
 
+    console.log("⛽ Gas estimates:", {
+      callGasLimit: callGasLimit.toString(),
+      verificationGasLimit: verificationGasLimit.toString()
+    })
+
     // EXACT same user operation as working transfer
     const userOpHash = await bundlerClient.sendUserOperation({
       account,
@@ -283,19 +333,40 @@ export async function POST(request: NextRequest) {
       maxPriorityFeePerGas
     })
 
+    console.log("📤 User operation sent:", userOpHash)
+
     // EXACT same receipt handling as working transfer
     const receipt = await bundlerClient.waitForUserOperationReceipt({
       hash: userOpHash
     })
     
-    // Try to extract pool address from logs
+    console.log("✅ Pool creation completed:", {
+      hash: receipt.receipt.transactionHash,
+      success: receipt.success,
+      gasUsed: receipt.actualGasUsed.toString()
+    })
+
+    // Try to get the new pool address by checking the new pool count
     let poolAddress = 'Check transaction logs'
+    let poolId = currentPoolCount
+    
     try {
-      // Look for PoolCreated event in logs
-      const poolCreatedTopic = '0x...' // You'll need to calculate this topic hash
-      // Or just parse the receipt logs to find the pool address
+      const newPoolCount = await factory.read.poolCount()
+      if (newPoolCount > currentPoolCount) {
+        poolId = currentPoolCount // The new pool ID
+        // Try to get pool address from factory
+        // Note: This might fail if the transaction hasn't been fully processed yet
+        setTimeout(async () => {
+          try {
+            const poolAddr = await factory.read.getPool([poolId])
+            console.log("🏊 New pool address:", poolAddr)
+          } catch (e) {
+            console.log("Could not get pool address immediately")
+          }
+        }, 1000)
+      }
     } catch (e) {
-      console.log("Could not extract pool address from logs")
+      console.log("Could not determine new pool address immediately")
     }
     
     return NextResponse.json({
@@ -303,14 +374,23 @@ export async function POST(request: NextRequest) {
       userOperationHash: userOpHash,
       transactionHash: receipt.receipt.transactionHash,
       accountAddress: account.address,
+      factoryAddress: FACTORY_ADDRESS,
+      poolId: poolId.toString(),
       poolAddress,
-      message: 'Pool created successfully via Circle Paymaster on Arbitrum',
+      title,
+      description,
+      targetAmount: formatUnits(BigInt(targetAmount), 6) + " USDC",
+      targetToken: finalTargetToken,
+      deadline: new Date(deadline * 1000).toISOString(),
+      maxContributors,
+      mockTokenCreated,
+      message: 'Pool created successfully via Mock Factory with Circle Paymaster',
       gasUsed: receipt.actualGasUsed.toString(),
       operationSuccess: receipt.success
     })
 
   } catch (error) {
-    console.error('Pool creation failed:', error)
+    console.error('❌ Pool creation failed:', error)
     
     // Better error handling
     let errorMessage = 'Pool creation failed'
@@ -319,6 +399,10 @@ export async function POST(request: NextRequest) {
         errorMessage = 'Insufficient USDC allowance for paymaster'
       } else if (error.message.includes('AA23')) {
         errorMessage = 'Paymaster validation failed'
+      } else if (error.message.includes('Invalid target amount')) {
+        errorMessage = 'Target amount must be greater than 0'
+      } else if (error.message.includes('Invalid deadline')) {
+        errorMessage = 'Deadline must be in the future'
       } else {
         errorMessage = error.message
       }

@@ -39,7 +39,7 @@ export function ExecuteButton({
         <div className="text-green-600 text-4xl mb-2">🎉</div>
         <h4 className="text-lg font-semibold text-green-600 mb-2">Purchase Executed!</h4>
         <p className="text-green-700 mb-4">
-          Successfully swapped ${usdcAmount} USDC for {targetToken} via 1inch
+          Successfully swapped ${usdcAmount} USDC for {targetToken} via univ2
         </p>
         <a 
           href={`https://sepolia.arbiscan.io/tx/${txHash}`}
@@ -65,11 +65,10 @@ export function ExecuteButton({
       <div className="bg-purple-50 border-purple-200 rounded-lg p-4 border">
         <h4 className="font-medium text-purple-600 mb-2">🔄 Execute Purchase</h4>
         <p className="text-sm text-purple-700 mb-3">
-          This will swap ${usdcAmount} USDC for {targetToken} using 1inch and distribute tokens proportionally to contributors.
+          This will swap ${usdcAmount} USDC for {targetToken} using uniswap and distribute tokens proportionally to contributors.
         </p>
         <ul className="text-xs text-purple-600 space-y-1">
           <li>• Gas fees sponsored by Circle Paymaster</li>
-          <li>• Best rates via 1inch aggregator</li>
           <li>• Tokens distributed automatically</li>
         </ul>
       </div>

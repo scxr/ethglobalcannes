@@ -41,7 +41,7 @@ export async function GET(request: NextRequest) {
     let pools: Pool[] = (data as any).data.ChipInFactory_PoolCreated as Pool[]
     
 
-    
+    pools = pools.reverse()
 
     return NextResponse.json({
       success: true,

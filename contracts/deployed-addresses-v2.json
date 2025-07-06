@@ -1,0 +1,22 @@
+{
+  "factory": "0xD8064861d9cc5186c61b532a67F59a37119B734B",
+  "usdc": "0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d",
+  "uniswapV2Router": "0x86dcd3293C53Cf8EFd7303B57beb2a3F671dDE98",
+  "network": "arbitrumSepolia",
+  "version": "UniswapV2",
+  "deployer": "0x23f5DC1Ef0Ef3D2897fbf8F6cCDc23F462625A62",
+  "deployedAt": "2025-07-06T00:42:09.842Z",
+  "testPoolAddress": "0xEc7f67193eb95F778A48CC8eAAAe8166E880A6Eb",
+  "availablePairs": [
+    {
+      "name": "WETH",
+      "address": "0x980B62Da83eFf3D4576C647993b0c1D7faf17c73",
+      "hasPair": false
+    },
+    {
+      "name": "ARB",
+      "address": "0xb1f8e55c7f64d203c1400b9d8555d050f94adf39",
+      "hasPair": false
+    }
+  ]
+}

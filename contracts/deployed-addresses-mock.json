@@ -1,0 +1,17 @@
+{
+  "factory": "0x108c416A6Cb34cea4A1C93F749B347e1dE3C65e8",
+  "usdc": "0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d",
+  "network": "arbitrumSepolia",
+  "version": "Mock",
+  "deployer": "0x23f5DC1Ef0Ef3D2897fbf8F6cCDc23F462625A62",
+  "deployedAt": "2025-07-06T01:45:33.468Z",
+  "testPool": "0x5FC23d78E1a1623Bb512a7539A630b8fdF516F7f",
+  "mockTokens": {
+    "mETH": "0x381d92418e202E856995cf3199160c1D9562F513",
+    "mBTC": "0xF23E6506D78a4AEa74C0fdC0Cb81EA33D4F19A06"
+  },
+  "exchangeRates": {
+    "mETH": "0.0006 mETH per USDC",
+    "mBTC": "0.000025 mBTC per USDC"
+  }
+}

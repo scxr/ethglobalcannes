@@ -6,7 +6,7 @@ networks:
   contracts:
   - name: ChipInFactory
     address:
-    - 0x1f74ab8847339D7f91D049da75ceEB0f21E87827
+    - 0x108c416A6Cb34cea4A1C93F749B347e1dE3C65e8
     handler: src/EventHandlers.ts
     events:
     - event: OwnershipTransferred(address indexed previousOwner, address indexed newOwner)
